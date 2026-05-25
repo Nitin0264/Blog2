@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login - DevDashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
 
@@ -21,24 +22,20 @@
         <p class="text-slate-500 text-sm mt-1">Please enter your details to sign in to your dashboard session.</p>
       </div>
 
-      <!-- Interactive Validation Warnings -->
-      <% if (error) { %>
-        <div class="mb-5 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span><%= error %></span>
-        </div>
-      <% } %>
+      <div id="error-box" class="hidden mb-5 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span id="error-message"></span>
+      </div>
 
-      <form action="/login" method="POST" class="space-y-4">
+      <form id="login-form" class="space-y-4">
         
         <div>
           <label for="username" class="block text-sm font-semibold text-slate-700 mb-1.5">Username</label>
           <input 
             type="text" 
             id="username" 
-            name="username" 
             placeholder="Your username" 
             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:bg-white transition-all"
             required
@@ -50,7 +47,6 @@
           <input 
             type="password" 
             id="password" 
-            name="password" 
             placeholder="••••••••" 
             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:bg-white transition-all"
             required
@@ -59,7 +55,7 @@
 
         <button 
           type="submit" 
-          class="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors shadow-sm"
+          class="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors shadow-sm cursor-pointer"
         >
           Sign In
         </button>
@@ -76,6 +72,50 @@
   <footer class="text-center py-4 text-xs text-slate-400 border-t border-slate-100 bg-white">
     &copy; DevDashboard. All rights reserved.
   </footer>
+
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault(); // Stop the browser from refreshing the page naturally
+
+      const usernameInput = document.getElementById("username").value;
+      const passwordInput = document.getElementById("password").value;
+      const errorBox = document.getElementById("error-box");
+      const errorMessage = document.getElementById("error-message");
+
+      // Hide error box on every fresh submit attempt
+      errorBox.classList.add("hidden");
+
+      try {
+        // Dispatch the background POST request using Axios
+        const response = await axios.post("/api/login", {
+          username: usernameInput,
+          password: passwordInput
+        });
+
+        // If backend responds with success: true
+        if (response.data.success) {
+          // A. Save the raw JWT string token
+          localStorage.setItem("token", response.data.token);
+
+          // B. Turn the user object into a string and save it for home.ejs to use
+          localStorage.setItem("user", JSON.stringify(response.data.user));
+
+          // C. Redirect to home dashboard layout smoothly
+          window.location.href = "/";
+        }
+      } catch (err) {
+        // Reveal the error box container
+        errorBox.classList.remove("hidden");
+
+        // Extract error message sent by the backend, fallback if network dropped completely
+        if (err.response && err.response.data) {
+          errorMessage.innerText = err.response.data.message;
+        } else {
+          errorMessage.innerText = "An unexpected connection error occurred.";
+        }
+      }
+    });
+  </script>
 
 </body>
 </html>

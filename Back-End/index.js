@@ -4,12 +4,14 @@ import session from "express-session";
 import bcrypt from "bcryptjs";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import jwt from "jsonwebtoken";
+import cors from "cors";
 
 // Initialize Express app
 const app = express();
+const JWT_SECRET = "my_super_secret_key";
 
 // ====================== PATH CONFIGURATION ======================
-// Reconstruct __dirname for ES Modules (since __dirname is not available by default in ES modules)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -20,18 +22,21 @@ app.set('view engine', 'ejs');
 
 console.log("Express views directory is set to:", viewsPath);
 
-// ====================== MIDDLEWARE ======================
+// ====================== GLOBAL MIDDLEWARE ======================
+app.use(cors());                        // Enable Cross-Origin requests safely
+app.use(express.json());                // Read modern Axios JSON bodies (Crucial!)
+app.use(express.urlencoded({ extended: true })); // Read classic HTML form data
 
-// Parse URL-encoded form data (from HTML forms)
-app.use(express.urlencoded({ extended: true }));
-
-// Session configuration - used for maintaining user login state
+// Session configuration - keeping for old routes fallback
 app.use(session({
-  secret: "my_super_secret_key",        // Secret key to sign the session ID cookie
-  resave: false,                        // Don't save session if unmodified
-  saveUninitialized: false,             // Don't create session until something is stored
-  cookie: { maxAge: 3600000 }           // Cookie expires in 1 hour (3600000 ms)
+  secret: "my_super_secret_key",
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 3600000 }
 }));
+
+// ====================== DATABASE CONNECTION ======================
+// ... Leave your database and routes exactly as they are below this line!
 
 // ====================== DATABASE CONNECTION ======================
 
@@ -85,6 +90,34 @@ const blogSchema = new mongoose.Schema({
 });
 const Blog = mongoose.model("Blog", blogSchema);
 
+
+// Security Middleware: Decodes the JWT token from incoming Axios request headers
+const verifyToken = (req, res, next) => {
+  // 1. Look for the token inside the incoming 'Authorization' request header
+  const authHeader = req.headers['authorization'];
+  
+  // Axios sends it as: "Bearer <token_string>". Let's split it and get just the token string.
+  const token = authHeader && authHeader.split(' ')[1];
+
+  // If no token is provided at all, shut down the request immediately
+  if (!token) {
+    return res.status(401).json({ success: false, message: "Access Denied. No token provided!" });
+  }
+
+  try {
+    // 2. Use your secret key to verify if the token is authentic and un-tampered with
+    const verifiedPayload = jwt.verify(token, JWT_SECRET);
+    
+    // 3. Attach the decrypted payload details directly onto the request object
+    req.user = verifiedPayload; 
+    
+    // 4. Everything looks perfect! Let the request move forward to the actual route handler
+    next();
+  } catch (err) {
+    // If the token is expired, fake, or modified, trigger an error response
+    return res.status(403).json({ success: false, message: "Invalid or expired authorization token!" });
+  }
+};
 // ====================== ROUTES ======================
 
 // GET: Show Registration Page
@@ -128,7 +161,6 @@ app.get("/login", (req, res) => {
   res.render("login", { error: null });
 });
 
-// POST: Handle Login
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
@@ -159,6 +191,48 @@ app.post("/login", async (req, res) => {
   }
 });
 
+// using this onepost for the axios and the jwt
+
+app.post("/api/login", async (req,res)=>
+{
+  const{username,password} = req.body;
+  
+  try{
+    const user = await User.findOne({username:username});
+    if(!user){
+      return res.status(400).json({
+        success:false,message:"Invalid username or password"
+      })
+    }
+    const isMatch = await bcrypt.compare(password,user.password);
+    if(!isMatch)
+    {
+      return res.status(400).json({success:false,message:"invalid username or password"})
+    }
+   const tokenPayload = {
+    userId :user._id,
+    username:user.username,
+    role:user.role
+   };
+   const token = jwt.sign(tokenPayload,JWT_SECRET,{
+    expiresIn:"1h"
+   });
+   return res.status(200).json({
+    success:true,
+    message:"Login Successful",
+    token:token,
+    user:{username:user.username,role:user.role}
+   });
+
+  }
+  catch(err){
+    console.error("API Login Error",err);
+    return res.status(500).json({
+      success:false,message:"an error occurred while loging in "
+    })
+  }
+});
+
 // Logout Route
 app.get("/logout", (req, res) => {
   req.session.destroy((err) => {
@@ -175,12 +249,70 @@ app.get("/logout", (req, res) => {
 
 // GET: Show Create Blog Page (Admin Only)
 app.get("/create-blog", (req, res) => {
-  if (!req.session.userId || req.session.role !== "admin") {
-    return res.status(403).send("Access denied. Admins only.");
-  }
   res.render("create-blog", { error: null });
 });
 
+app.get("/api/blogs", async (req, res) => {
+  try {
+    // Changed "blog" to "blogs" to match your return statement below
+    const blogs = await Blog.find().sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      blogs: blogs
+    });
+  } catch (err) {
+    console.error("API fetch blogs error :", err);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching articles from the Database"
+    });
+  }
+});
+
+// API Route: Securely Create New Blog Post (Admin Only)
+// Notice how we inject 'verifyToken' right into the middle of the route parameters!
+app.post("/api/blogs", verifyToken, async (req, res) => {
+  // 1. Authorization Check: verifyToken already decoded the user profile into req.user
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ 
+      success: false, 
+      message: "Access Denied. Only administration profiles can publish articles!" 
+    });
+  }
+
+  const { title, description, imageUrl } = req.body;
+
+  // 2. Form Input Validation Check
+  if (!title || !description || !imageUrl) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "All validation fields are strictly required!" 
+    });
+  }
+
+  try {
+    // 3. Persist the record to MongoDB
+    const newBlog = await Blog.create({
+      title: title,
+      description: description,
+      imageUrl: imageUrl
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Blog post published successfully via JWT authorization!",
+      blog: newBlog
+    });
+
+  } catch (err) {
+    console.error("API Blog Creation Error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Database insertion error. Failed to save post." 
+    });
+  }
+});
 // POST: Create New Blog (Admin Only)
 app.post("/create-blog", async (req, res) => {
   if (!req.session.userId || req.session.role !== "admin") {
