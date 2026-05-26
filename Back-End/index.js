@@ -247,6 +247,108 @@ app.get("/logout", (req, res) => {
 
 // ====================== ADMIN ROUTES ======================
 
+// inseting the new routes for the admin fixed login
+
+// ====================== ADVANCED MANAGEMENT API ROUTES ======================
+
+// 1. GET: Fetch all registered users from the database (Secure: Admin Only)
+app.get("/api/users", verifyToken, async (req, res) => {
+  // Security Guard: Check if the decoded JWT profile role is 'admin'
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied. Admins only." });
+  }
+
+  try {
+    // Fetch all users, but explicitly exclude the password field ("-password") for data safety
+    const users = await User.find({}, "-password"); 
+    return res.status(200).json({ success: true, users: users });
+  } catch (err) {
+    console.error("Error fetching user directory:", err);
+    return res.status(500).json({ success: false, message: "Failed to retrieve user directory." });
+  }
+});
+
+// 2. DELETE: Remove a user account permanently from MongoDB (Secure: Admin Only)
+app.delete("/api/users/:id", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied. Admins only." });
+  }
+
+  try {
+    const userIdToDelete = req.params.id;
+
+    // Safety Lock: Prevent an admin from accidentally deleting their own active account!
+    if (userIdToDelete === req.user.userId) {
+      return res.status(400).json({ success: false, message: "Operation blocked! You cannot delete your own admin profile." });
+    }
+
+    await User.findByIdAndDelete(userIdToDelete);
+    return res.status(200).json({ success: true, message: "User account permanently purged." });
+  } catch (err) {
+    console.error("Error deleting user account:", err);
+    return res.status(500).json({ success: false, message: "Database deletion failure." });
+  }
+});
+
+// 3. DELETE: Remove a blog post article from MongoDB (Secure: Admin Only)
+app.delete("/api/blogs/:id", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied. Admins only." });
+  }
+
+  try {
+    const blogId = req.params.id;
+    await Blog.findByIdAndDelete(blogId);
+    return res.status(200).json({ success: true, message: "Technical article removed successfully." });
+  } catch (err) {
+    console.error("Error deleting blog article:", err);
+    return res.status(500).json({ success: false, message: "Database failed to delete article entry." });
+  }
+});
+
+// 5. PUT: Securely update an existing blog post article inside MongoDB (Secure: Admin Only)
+app.put("/api/blogs/:id", verifyToken, async (req, res) => {
+  // Security check: Only let authenticated admins pass
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied. Admins only." });
+  }
+
+  const { title, description, imageUrl } = req.body;
+  const blogId = req.params.id;
+
+  // Simple input verification validation check
+  if (!title || !description || !imageUrl) {
+    return res.status(400).json({ success: false, message: "All form modification fields are required!" });
+  }
+
+  try {
+    // Find the item by its database ID and replace its fields with the new incoming data
+    const updatedBlog = await Blog.findByIdAndUpdate(
+      blogId,
+      { title: title, description: description, imageUrl: imageUrl },
+      { new: true } // { new: true } instructs mongoose to return the newly updated version of the document
+    );
+
+    if (!updatedBlog) {
+      return res.status(404).json({ success: false, message: "Target blog post could not be found." });
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Article entry rewritten successfully!", 
+      blog: updatedBlog 
+    });
+  } catch (err) {
+    console.error("Error editing database blog post entry:", err);
+    return res.status(500).json({ success: false, message: "Database update transaction failed." });
+  }
+});
+// 4. GET: Server-Side route to render our upcoming Admin Panel HTML interface page
+app.get("/admin-panel", (req, res) => {
+  res.render("admin-panel");
+});
+
+
 // GET: Show Create Blog Page (Admin Only)
 app.get("/create-blog", (req, res) => {
   res.render("create-blog", { error: null });

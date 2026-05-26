@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - User Directory</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+
+  <nav class="bg-white shadow-sm border-b border-slate-200 py-4 px-6 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <a href="/" class="text-xl font-bold text-indigo-600 tracking-tight">DevDashboard</a>
+      <span class="text-xs bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-md border border-indigo-100">Control Console</span>
+    </div>
+    <a href="/" class="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">&larr; Back to Dashboard Feed</a>
+  </nav>
+
+  <main class="flex-grow max-w-5xl w-full mx-auto p-6 md:p-8">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      
+      <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+        <h1 class="text-xl font-bold text-slate-900">Registered User Accounts</h1>
+        <p class="text-slate-500 text-sm mt-0.5">Manage user directory metrics and handle profile lifecycle terminations.</p>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-100/70 text-slate-600 text-xs font-semibold uppercase tracking-wider">
+              <th class="p-4 pl-6">Database unique ID</th>
+              <th class="p-4">Account Name (Username)</th>
+              <th class="p-4">Privilege Role</th>
+              <th class="p-4 pr-6 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="user-table-body" class="text-sm divide-y divide-slate-100">
+            <tr>
+              <td colspan="4" class="text-center p-8 text-slate-400">Loading master directory registry matrix...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+
+  <footer class="text-center py-4 text-xs text-slate-400 border-t border-slate-100 bg-white">
+    &copy; DevDashboard Control Hub. Secure Administration Session.
+  </footer>
+
+
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      const token = localStorage.getItem("token");
+      const userBody = document.getElementById("user-table-body");
+
+      // 1. Guard Check: If a visitor tries to view this page without a token, kick them to login
+      if (!token) {
+        window.location.href = "/login";
+        return;
+      }
+
+      try {
+        // 2. Axios Request: Fetch user entries while sending the JWT string in the headers
+        const response = await axios.get("/api/users", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        const users = response.data.users;
+        userBody.innerHTML = ""; // Clear out the "Loading..." row placeholder
+
+        if (users.length === 0) {
+          userBody.innerHTML = `<tr><td colspan="4" class="text-center p-8 text-slate-400">No registered accounts found.</td></tr>`;
+          return;
+        }
+
+        // 3. Render Matrix: Build table rows dynamically
+        users.forEach(userItem => {
+          // Add a special color badge for admins so they stand out
+          const roleBadgeColor = userItem.role === "admin" 
+            ? "bg-amber-50 text-amber-700 border-amber-200" 
+            : "bg-slate-100 text-slate-600 border-slate-200";
+
+          userBody.innerHTML += `
+            <tr id="user-row-${userItem._id}" class="hover:bg-slate-50/50 transition-colors">
+              <td class="p-4 pl-6 font-mono text-xs text-slate-400">${userItem._id}</td>
+              <td class="p-4 font-semibold text-slate-800">${userItem.username}</td>
+              <td class="p-4">
+                <span class="text-xs px-2.5 py-1 rounded-md border font-medium ${roleBadgeColor}">
+                  ${userItem.role}
+                </span>
+              </td>
+              <td class="p-4 pr-6 text-right">
+                <button onclick="terminateUser('${userItem._id}')" class="text-xs bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer">
+                  Delete Account
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+
+      } catch (err) {
+        console.error("Directory loading failure:", err);
+        userBody.innerHTML = `<tr><td colspan="4" class="text-center p-8 text-rose-500 font-medium">Access Denied. You are not authorized to view this resource.</td></tr>`;
+      }
+    });
+
+    // 4. Global Action Handler: Send deletion request to backend API
+    window.terminateUser = async (userId) => {
+      if (!confirm("Are you absolutely certain you want to destroy this user account? This cannot be undone.")) return;
+
+      const token = localStorage.getItem("token");
+      try {
+        const response = await axios.delete(`/api/users/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (response.data.success) {
+          // Remove the specific row directly off the screen instantly without reloading!
+          const rowToRemove = document.getElementById(`user-row-${userId}`);
+          if (rowToRemove) {
+            rowToRemove.remove();
+          }
+        }
+      } catch (err) {
+        alert(err.response?.data?.message || "Failed to complete account deletion.");
+      }
+    };
+  </script>
+</body>
+</html>
