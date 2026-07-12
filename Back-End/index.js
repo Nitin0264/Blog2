@@ -463,5 +463,5 @@ app.get("/", async (req, res) => {
 
 // Start Server
 app.listen(8000, () => {
-  console.log('🚀 server is runing on the port 8000');
+  console.log('🚀g 8000');
 });
